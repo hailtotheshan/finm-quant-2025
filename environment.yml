@@ -1,0 +1,36 @@
+name: env-finm-quant-2025
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python>=3.9,<3.11
+
+  # core data stack
+  - numpy
+  - pandas
+  - scipy
+  - scikit-learn
+  - statsmodels
+  - arch-py
+
+  # I/O & tables
+  - openpyxl
+
+  # plotting
+  - matplotlib
+  - seaborn
+  - plotly
+
+  # jupyter
+  - jupyter
+
+  # finance APIs available via conda-forge
+  - blpapi
+
+  # fallback to pip for anything not in conda-forge
+  - pip
+  - pip:
+    - yfinance
+    - xbbg
+    - pandas-datareader
+    - wrds
