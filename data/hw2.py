@@ -170,9 +170,10 @@ d. Report the volatility of ϵ^merr, the tracking error.""")
         X = sm.add_constant(X)  # Add intercept
         model = sm.OLS(y, X).fit()
 
-        # Calculate the regression statistics of alpha and beta
+        # Calculate the regression statistics of alpha, beta, and R^2
         alpha = model.params['const']
         beta = model.params['SPY US Equity']
+        r2 = model.rsquared
 
         # Compute tracking errors
         residuals = model.resid
@@ -185,7 +186,15 @@ d. Report the volatility of ϵ^merr, the tracking error.""")
 
         print(f"\n{factor}:"
               f"\nAlpha (intercept): {round(annualized_alpha, 4)} "
-              f"\nBeta: {round(beta, 4)}")
+              f"\nBeta: {round(beta, 4)}"
+              f"\nR^2: {round(r2, 4)}"
+              f"\nTracking Error: {round(annualized_tracking_error, 4)}")
+
+    print("""\nUSGG3M Index and EUO US Equity with approximately 0 beta does not need much hedging.
+EUO US Equity with negative beta of -0.41 might require a long-hold position of SPY to mitigate market risk exposure.
+However, the other equities, including EEM US Equity, EFA US Equity, and IWM US Equity 
+have relatively high beta ranging from 0.8 to 1.2. This indicates a moderate long-short positions:
+holding these equity might require long-short 80% to 120% of weights in SPY.""")
 
 
 def draw_heatmap(df, plot_title=""):
