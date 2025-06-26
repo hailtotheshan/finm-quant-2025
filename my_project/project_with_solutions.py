@@ -8,7 +8,6 @@ def get_hk_stock_daily_returns(hk_stocks, start_date, end_date):
     Fetches daily adjusted-close for HK tickers,
     backfills/forwardfills missing prices, then returns pct-change.
     """
-    # 1) Grab raw daily adjusted-closes
     prices = yf.download(
         tickers=hk_stocks,
         start=start_date,
@@ -19,15 +18,9 @@ def get_hk_stock_daily_returns(hk_stocks, start_date, end_date):
         progress=False
     )["Close"]
 
-    # 2) Fill holes in the price series
-    #    .bfill() backfills NaNs from future valid data,
-    #    .ffill() then forward fills any leading NaNs.
     prices = prices.ffill(axis=0).bfill(axis=0)
 
-    # 3) Compute daily pct-change and drop any leftover all-NaN rows
     returns = prices.pct_change().dropna(how="all")
-
-    # 4) (Optional) If you really hate any NaNs, you can fill returns too:
     returns = returns.ffill(axis=0).bfill(axis=0)
 
     return returns
@@ -41,8 +34,8 @@ def tangency_portfolio(returns, risk_free_rate=0.02):
 
     # Constraints: sum of weights = 1
     constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
-    # Bounds: weights between 0 and 1 (long-only)
-    bounds = tuple((0, 1) for _ in range(num_assets))
+    # No bounds ==> allow shorting (weights can be negative)
+    bounds = None
 
     def neg_sharpe_ratio(weights, mean_returns, cov_matrix, risk_free_rate):
         port_return = np.dot(weights, mean_returns)
@@ -76,13 +69,11 @@ def main():
     print("Downloading data...")
     etf_data = get_hk_stock_daily_returns(hk_stocks, start_date, end_date)
 
-    # Assume risk-free rate is 2% annualized (change as needed)
     risk_free_rate = 0.02
 
-    print("Calculating tangency portfolio...")
+    print("Calculating tangency portfolio (with short selling allowed)...")
     weights = tangency_portfolio(etf_data, risk_free_rate)
 
-    # Portfolio metrics
     mean_returns = etf_data.mean() * 252
     cov_matrix = etf_data.cov() * 252
 
@@ -95,27 +86,12 @@ def main():
     print("Stock        Weight")
     print("-------------------")
     for stock, weight in zip(hk_stocks, weights):
-        print(f"{stock:10s}  {weight:.4f}")
+        if abs(weight) > 1e-4:
+            print(f"{stock:10s}  {weight:.4f}")
     print("-------------------")
     print(f"Expected annual return: {expected_return:.4%}")
     print(f"Annualized volatility:  {volatility:.4%}")
     print(f"Sharpe Ratio:           {sharpe_ratio:.4f}")
-
-    # Testing period performance (using SAME weights but test data's mean/cov)
-    testing_data = get_hk_stock_daily_returns(hk_stocks, '2024-01-01', '2025-06-30')
-    test_mean_returns = testing_data.mean() * 252
-    test_cov_matrix = testing_data.cov() * 252
-
-    expected_return_test = np.dot(weights, test_mean_returns)
-    volatility_test = np.sqrt(np.dot(weights.T, np.dot(test_cov_matrix, weights)))
-    sharpe_ratio_test = (expected_return_test - risk_free_rate) / volatility_test
-
-    print("\nTesting Period Performance (2024-01-01 to 2025-06-30):")
-    print("------------------------------------------------------")
-    print(f"Annualized mean return:        {expected_return_test:.4%}")
-    print(f"Annualized volatility:         {volatility_test:.4%}")
-    print(f"Sharpe Ratio:                  {sharpe_ratio_test:.4f}")
-
 
 if __name__ == "__main__":
     main()
