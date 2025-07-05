@@ -15,7 +15,7 @@ def main():
     # Import the data from 'hedge_fund_series' sheet in the excel file given
     hedge_fund_series = pd.read_excel("proshares_analysis_data.xlsx",
                                       sheet_name='hedge_fund_series', header=0, index_col=0)
-    # print(hedge_fund_series)
+    print(hedge_fund_series)
 
     print("\n1.For the series in the \"hedge fund series\" tab, "
           "report the following summary statistics:")
@@ -24,12 +24,10 @@ def main():
 - Sharpe ratio
 - Annualize these statistics.''')
 
-    summary_statistics = pd.DataFrame({
-        'Annualized Mean': hedge_fund_series.mean() * 12,
-        'Annualized Volatility': hedge_fund_series.std() * np.sqrt(12),
-        'Annualized Sharpe ratio': (hedge_fund_series.mean() * 12) / (hedge_fund_series.std() * np.sqrt(12))
-    })
-    print("\n", summary_statistics)
+    # Calculate annualized mean, std, and sharpe ratio
+    print("\nAnnualized mean:\n", hedge_fund_series.mean() * 12)  # scale of 12
+    print("\nAnnualized volatility:\n", hedge_fund_series.std() * np.sqrt(12))  # scale of sqrt(12)
+    print("\nAnnualized Sharpe ratio:\n", (hedge_fund_series.mean() * 12) / (hedge_fund_series.std() * np.sqrt(12)))
 
     print('''\n2. For the series in the "hedge fund series" tab, calculate the following statistics related to tail-risk.
 - Skewness
@@ -39,18 +37,18 @@ def main():
 - Maximum drawdown - include the dates of the max/min/recovery within the max drawdown period.
 There is no need to annualize any of these statistics.''')
 
-    risk = pd.DataFrame({
-        # Compute and print out skewness and kurtosis
-        'Skewness': hedge_fund_series.skew(),
-        'Kurtosis': hedge_fund_series.kurt(),
-        # Compute and print out VaR (.05) and CVaR (.05)
-        # VaR (.05) = the fifth quantile of historic returns
-        'VaR(.05)': hedge_fund_series.quantile(0.05),
-        # CVaR (.05) = the mean of the returns at or below the fifth quantile
-        'CVaR(.05)': hedge_fund_series[hedge_fund_series <= hedge_fund_series.quantile(0.05)].mean(),
-        'Maximum Drawdown': cal_drawdown(hedge_fund_series),
-    })
-    print("\n", risk)
+    # Compute and print out skewness and kurtosis
+    print("\nSkewness:\n", hedge_fund_series.skew())
+    print("\nKurtosis:\n", hedge_fund_series.kurt())
+
+    # Compute and print out VaR (.05) and CVaR (.05)
+    # VaR (.05) = the fifth quantile of historic returns
+    print("\nVaR(.05):\n", hedge_fund_series.quantile(0.05))
+    # CVaR (.05) = the mean of the returns at or below the fifth quantile
+    print("\nCVaR(.05):\n", hedge_fund_series[hedge_fund_series <= hedge_fund_series.quantile(0.05)].mean())
+
+    print("\nMaximum Drawdown:")
+    cal_drawdown(hedge_fund_series)
 
     print("""\n3.
 For the series in the "hedge fund series" tab, run a regression of each against SPY (found in the "merrill factors" tab.) 
@@ -69,7 +67,12 @@ Annualize these three statistics as appropriate.""")
     # Compute betas of funds using calculate_beta function
     market_beta = calculate_beta(combined_data, 'SPY US Equity')
 
+    # print("\nMarket Beta:")
+    # for hedge_fund, beta_value in market_beta.items():
+    # print(f"{hedge_fund}: {beta_value:.4f}")
+
     treynor = {}
+    # print("\nTreynor Ratio:")
     # Treynor ratio = r_i / beta
     for hedge_fund, beta_value in market_beta.items():
         # Annualize return by a scale of 12
@@ -144,8 +147,7 @@ Report the correlation matrix for these assets.
 - Show the correlations as a heat map.
 - Which series have the highest and lowest correlations?""")
 
-    # Run the next line of code to generate heatmap
-    # draw_heatmap(hedge_fund_series, "Hedge Funds Series vs. SPY")
+    draw_heatmap(hedge_fund_series, "Hedge Funds Series vs. SPY")
     print("\nBased on the results shown on the heatmap, MLEIFCTR Index and MLEIFCTX Index"
           "have the highest correlation of 1."
           "\nMLEIFCTR Index and QAI US Equity have the lowest correlation of 0.89")
@@ -160,130 +162,39 @@ b. Are the betas realistic position sizes, or do they require huge long-short po
 c. Report the R-squared.
 
 d. Report the volatility of ϵ^merr, the tracking error.""")
-
     for factor in merrill_factors:
-        print(f"\nRegressions with {factor} as the market benchmark:")
-        print(hf_regression(hedge_fund_series, merrill_factors[[factor]]))
+        # Y-axis = monthly returns of a factor
+        y = merrill_factors[factor]
+        # X-axis = monthly returns of SPY
+        X = merrill_factors['SPY US Equity']
+        X = sm.add_constant(X)  # Add intercept
+        model = sm.OLS(y, X).fit()
+
+        # Calculate the regression statistics of alpha, beta, and R^2
+        alpha = model.params['const']
+        beta = model.params['SPY US Equity']
+        r2 = model.rsquared
+
+        # Compute tracking errors
+        residuals = model.resid
+        # Compute the standard deviation of tracking errors
+        tracking_error = residuals.std()
+
+        # Annualize alpha and tracking error by scale of 12 and sqrt(12)
+        annualized_alpha = alpha * 12
+        annualized_tracking_error = tracking_error * np.sqrt(12)
+
+        print(f"\n{factor}:"
+              f"\nAlpha (intercept): {round(annualized_alpha, 4)} "
+              f"\nBeta: {round(beta, 4)}"
+              f"\nR^2: {round(r2, 4)}"
+              f"\nTracking Error: {round(annualized_tracking_error, 4)}")
 
     print("""\nUSGG3M Index and EUO US Equity with approximately 0 beta does not need much hedging.
 EUO US Equity with negative beta of -0.41 might require a long-hold position of SPY to mitigate market risk exposure.
 However, the other equities, including EEM US Equity, EFA US Equity, and IWM US Equity 
 have relatively high beta ranging from 0.8 to 1.2. This indicates a moderate long-short positions:
 holding these equity might require long-short 80% to 120% of weights in SPY.""")
-
-    print("\n7. Let's examine the replication out-of-sample (OOS).")
-
-    window = 60
-    dates_oos = []
-    oos_pred = {f: [] for f in hedge_fund_series.columns}
-    oos_true = {f: [] for f in hedge_fund_series.columns}
-
-    for i in range(window, len(hedge_fund_series)):
-        date_t = hedge_fund_series.index[i]
-        dates_oos.append(date_t)
-
-        for fund in hedge_fund_series.columns:
-            y_train = hedge_fund_series[fund].iloc[i - window:i]
-            X_train = sm.add_constant(merrill_factors['SPY US Equity'].iloc[i - window:i])
-            model = sm.OLS(y_train, X_train).fit()
-
-            alpha = model.params['const']
-            beta = model.params['SPY US Equity']
-
-            x_t = merrill_factors['SPY US Equity'].iloc[i]
-            y_hat = alpha + beta * x_t
-
-            oos_pred[fund].append(y_hat)
-            oos_true[fund].append(hedge_fund_series[fund].iloc[i])
-
-    # Calculate error DataFrames
-    pred_df = pd.DataFrame(oos_pred, index=dates_oos)
-    true_df = pd.DataFrame(oos_true, index=dates_oos)
-    err_df = true_df - pred_df
-
-    perf = pd.DataFrame(index=hedge_fund_series.columns)
-
-    # Compute performance metrics:
-    perf['OOS MSE'] = (err_df ** 2).mean()
-    perf['OOS Corr'] = true_df.corrwith(pred_df)
-
-    sse = (err_df ** 2).sum()
-    sst = ((true_df - true_df.mean()) ** 2).sum()
-    perf['OOS R2'] = 1 - sse / sst
-
-    perf['Mean Error'] = err_df.mean()
-
-    print(perf.round(4))
-
-
-def hf_regression(hedge_fund_series, market_df):
-    """The function "regression_statistics" is needed for this function.
-    Input: hedge_fund_series is a df with each column of funds to be compared
-    with the market by regression
-    market_df is a single column df of market benchmark to be compared with.
-    Output: A dataframe has four columns: alpha, beta, R-squared, tracking error.
-    It has rows of funds corresponding to funds in hedge_fund_series."""
-
-    # Initialize dictionaries to be compiled into a dataframe as the output
-    hf_alpha = {}
-    hf_beta = {}
-    hf_r2 = {}
-    hf_error = {}
-
-    for hedge_fund in hedge_fund_series:
-        # Combine hedge_fund_series with market_df
-        combined_data = hedge_fund_series.join(market_df, how='inner')
-
-        # Calculate regression statistics of a column of funds
-        hedge_fund, annualized_alpha, beta, r2, annualized_tracking_error = (
-            regression_statistics(combined_data, hedge_fund, market_df.columns))
-
-        # Append the regression statistics to the dictionaries
-        hf_alpha[hedge_fund] = annualized_alpha
-        hf_beta[hedge_fund] = beta
-        hf_r2[hedge_fund] = r2
-        hf_error[hedge_fund] = annualized_tracking_error
-
-    # Combine all dictionaries into a single dataframe
-    hf_factors = pd.DataFrame({
-        'Alpha': pd.Series(hf_alpha),
-        'Beta': pd.Series(hf_beta),
-        'R^2': pd.Series(hf_r2),
-        'Tracking Error': pd.Series(hf_error)
-    })
-
-    return hf_factors
-
-
-def regression_statistics(df, factor, market_column):
-    """Inputs: df is a dataframe containing monthly return of factor and market_column
-    factor is the columns in the df dataframe to be compared to the market.
-    market_column is the string name of the market column in df.
-    Outputs: alpha, beta, R-squared, and epsilon (tracking error) of factor
-    with respect to the market."""
-
-    # Y-axis = monthly returns of a factor
-    y = df[factor]
-    # X-axis = monthly returns of SPY
-    X = df[market_column]
-    X = sm.add_constant(X)  # Add intercept
-    model = sm.OLS(y, X).fit()
-
-    # Calculate the regression statistics of alpha, beta, and R^2
-    alpha = model.params['const']
-    beta = model.params[market_column]
-    r2 = model.rsquared
-
-    # Compute tracking errors
-    residuals = model.resid
-    # Compute the standard deviation of tracking errors
-    tracking_error = residuals.std()
-
-    # Annualize alpha and tracking error by scale of 12 and sqrt(12)
-    annualized_alpha = alpha * 12
-    annualized_tracking_error = tracking_error * np.sqrt(12)
-
-    return factor, annualized_alpha, beta, r2, annualized_tracking_error
 
 
 def draw_heatmap(df, plot_title=""):
@@ -325,8 +236,6 @@ def calculate_beta(df, benchmark):
 
 
 def cal_drawdown(funds_data):
-    drawdowns = {}
-
     # normalize the data by dividing all values by the first row
     normalized_data = funds_data / funds_data.iloc[0]
 
@@ -343,9 +252,7 @@ def cal_drawdown(funds_data):
 
             # Update maximum drawdown
             max_drawdown = min(max_drawdown, percentage_drawdown)
-        drawdowns[hedge_fund] = max_drawdown
-
-    return drawdowns
+        print(hedge_fund, ": ", max_drawdown)
 
 
 if __name__ == '__main__':
