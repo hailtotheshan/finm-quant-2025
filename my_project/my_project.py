@@ -2,6 +2,9 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 import yfinance as yf
+import matplotlib.pyplot as plt
+import seaborn as sns
+
 
 def get_hk_stock_daily_returns(hk_stocks, start_date, end_date):
     """
@@ -63,28 +66,43 @@ def tangency_portfolio(returns, risk_free_rate=0.02):
 
     return result.x
 
+
+def draw_heatmap(df, plot_title=""):
+    # Compute the correlation matrix
+    correlation_matrix = df.corr()
+    print("Correlation matrix:\n", correlation_matrix)
+
+    # Plot the correlation matrix as a heat‐map
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(correlation_matrix, annot=True, fmt=".2f",
+                cmap="coolwarm", vmin=-1, vmax=1, linewidths=0.5)
+    plt.title(plot_title)
+    plt.show()
+
+
 def main():
-    hk_stocks = [
+    """hk_stocks = [
         '6862.HK', '2015.HK', '3690.HK', '3988.HK', '0388.HK', '1398.HK',
         '0941.HK', '1211.HK', '1299.HK', '9992.HK', '1357.HK', '0005.HK',
         '2331.HK', '2276.HK', '1810.HK', '9626.HK', '9633.HK', '9988.HK',
         '0700.HK', '0133.HK', '0806.HK', '1788.HK', '3037.HK', '1375.HK'
-    ]
-    start_date = "2020-01-01"
-    end_date = "2023-01-01"
+    ]"""
+    hk_stocks = ['1788.HK', '0806.HK', '2015.HK']
+    start_date = "2025-01-01"
+    end_date = "2026-01-01"
 
     print("Downloading data...")
-    etf_data = get_hk_stock_daily_returns(hk_stocks, start_date, end_date)
+    stock_data = get_hk_stock_daily_returns(hk_stocks, start_date, end_date)
 
     # Assume risk-free rate is 2% annualized (change as needed)
     risk_free_rate = 0.02
 
     print("Calculating tangency portfolio...")
-    weights = tangency_portfolio(etf_data, risk_free_rate)
+    weights = tangency_portfolio(stock_data, risk_free_rate)
 
     # Portfolio metrics
-    mean_returns = etf_data.mean() * 252
-    cov_matrix = etf_data.cov() * 252
+    mean_returns = stock_data.mean() * 252
+    cov_matrix = stock_data.cov() * 252
 
     expected_return = np.dot(weights, mean_returns)
     volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
@@ -102,7 +120,9 @@ def main():
     print(f"Sharpe Ratio:           {sharpe_ratio:.4f}")
 
     # Testing period performance (using SAME weights but test data's mean/cov)
-    testing_data = get_hk_stock_daily_returns(hk_stocks, '2024-01-01', '2025-06-30')
+    test_start = '2025-01-01'
+    test_end = '2026-01-01'
+    testing_data = get_hk_stock_daily_returns(hk_stocks, test_start, test_end)
     test_mean_returns = testing_data.mean() * 252
     test_cov_matrix = testing_data.cov() * 252
 
@@ -110,11 +130,13 @@ def main():
     volatility_test = np.sqrt(np.dot(weights.T, np.dot(test_cov_matrix, weights)))
     sharpe_ratio_test = (expected_return_test - risk_free_rate) / volatility_test
 
-    print("\nTesting Period Performance (2024-01-01 to 2025-06-30):")
+    print(f"\nTesting Period Performance ({test_start} to {test_end}):")
     print("------------------------------------------------------")
     print(f"Annualized mean return:        {expected_return_test:.4%}")
     print(f"Annualized volatility:         {volatility_test:.4%}")
     print(f"Sharpe Ratio:                  {sharpe_ratio_test:.4f}")
+
+    draw_heatmap(stock_data)
 
 
 if __name__ == "__main__":
