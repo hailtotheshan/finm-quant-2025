@@ -62,7 +62,7 @@ def calc_univariate_regression(y, X, intercept=True, adj=12):
     summary = dict()
 
     summary["Alpha (Annualized)"] = inter * adj
-    summary["Alpha (Raw)"] = adj
+    summary["Alpha (Raw)"] = inter
     summary["Beta"] = beta
 
     if X_down.empty:
@@ -110,7 +110,7 @@ def calc_multivariate_regression(y, X, intercept=True, adj=12):
     betas = results.params.iloc[1:] if intercept else results.params
 
     summary["Alpha (Annualized)"] = inter * adj
-    summary["Alpha (Raw)"] = adj
+    summary["Alpha (Raw)"] = inter
     summary["R-Squared"] = results.rsquared
 
     X_cols = X.columns[1:] if intercept else X.columns
