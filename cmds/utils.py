@@ -61,11 +61,15 @@ def calc_univariate_regression(y, X, intercept=True, adj=12):
 
     summary = dict()
 
-    summary["Alpha"] = inter * adj
+    summary["Alpha (Annualized)"] = inter * adj
+    summary["Alpha (Raw)"] = adj
     summary["Beta"] = beta
 
-    down_mod = sm.OLS(y_down, X_down, missing="drop").fit()
-    summary["Downside Beta"] = down_mod.params.iloc[1] if intercept else down_mod.params.iloc[0]
+    if X_down.empty:
+        summary["Downside Beta"] = pd.NA
+    else:
+        down_mod = sm.OLS(y_down, X_down, missing="drop").fit()
+        summary["Downside Beta"] = down_mod.params.iloc[1] if intercept else down_mod.params.iloc[0]
     summary["R-Squared"] = results.rsquared
     summary["Treynor Ratio"] = (y.mean() / beta) * adj
     summary["Information Ratio"] = (inter / results.resid.std()) * np.sqrt(adj)
@@ -105,13 +109,14 @@ def calc_multivariate_regression(y, X, intercept=True, adj=12):
     inter = results.params.iloc[0] if intercept else 0
     betas = results.params.iloc[1:] if intercept else results.params
 
-    summary["Alpha"] = inter * adj
+    summary["Alpha (Annualized)"] = inter * adj
+    summary["Alpha (Raw)"] = adj
     summary["R-Squared"] = results.rsquared
 
     X_cols = X.columns[1:] if intercept else X.columns
 
     for i, col in enumerate(X_cols):
-        summary[f"{col} Beta"] = betas[i]
+        summary[f"{col} Beta"] = betas.iloc[i]
 
     summary["Information Ratio"] = (inter / results.resid.std()) * np.sqrt(adj)
     summary["Tracking Error"] = results.resid.std() * np.sqrt(adj)
