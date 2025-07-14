@@ -81,15 +81,20 @@ def draw_heatmap(df, plot_title=""):
 
 
 def main():
-    """hk_stocks = [
+    hk_stocks = [
         '6862.HK', '2015.HK', '3690.HK', '3988.HK', '0388.HK', '1398.HK',
         '0941.HK', '1211.HK', '1299.HK', '9992.HK', '1357.HK', '0005.HK',
         '2331.HK', '2276.HK', '1810.HK', '9626.HK', '9633.HK', '9988.HK',
-        '0700.HK', '0133.HK', '0806.HK', '1788.HK', '3037.HK', '1375.HK'
-    ]"""
-    hk_stocks = ['1788.HK', '0806.HK', '2015.HK']
-    start_date = "2025-01-01"
-    end_date = "2026-01-01"
+        '0700.HK', '0133.HK', '0806.HK', '1788.HK', '3037.HK', '1375.HK',
+        '0881.HK', '9901.HK', '2388.HK', '0066.HK', '3692.HK', '1378.HK',
+        '6618.HK', '0386.HK', '0316.HK', '0857.HK', '0267.HK', '9618.HK',
+        '2313.HK', '0762.HK', '0011.HK', '0300.HK', '1088.HK', '0288.HK',
+        '9961.HK', '6690.HK', '2899.HK', '0669.HK', '2319.HK', '0291.HK',
+        '0992.HK', '2628.HK', '0241.HK', '2318.HK'
+    ]
+    # hk_stocks = ['1788.HK', '0806.HK', '2015.HK']
+    start_date = "2024-01-01"
+    end_date = "2025-01-01"
 
     print("Downloading data...")
     stock_data = get_hk_stock_daily_returns(hk_stocks, start_date, end_date)

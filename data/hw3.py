@@ -229,7 +229,8 @@ For each regression, report the estimated α and r-squared.""")
         X = combined_data[['MKT', 'SMB', 'HML', 'UMD']]
         y = combined_data[asset]
 
-        X = sm.add_constant(X)  # now columns = ['const','MKT','SMB','HML','UMD']
+        # add constant for intercept
+        X_const = sm.add_constant(X)  # now columns = ['const','MKT','SMB','HML','UMD']
 
         # run OLS: return_i = α + β·MKT + ε
         model = sm.OLS(y, X_const).fit()
