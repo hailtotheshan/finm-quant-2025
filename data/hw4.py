@@ -3,7 +3,6 @@ Copilot is used for only debugging in this assignment.
 No code in this assignment is copied directly from copilot unless explicitly outlined in comments
 This is my answer to Homework 4 in FINM 25000"""
 
-
 import pandas as pd
 import numpy as np
 import statsmodels.api as sm
@@ -38,7 +37,8 @@ For each, report the r-squared""")
 
     print("\nX as a single regressor, the dividend-price ratio.\n")
     # Compute the alpha, beta, r-squared, and epsilon of dividend price ratio as X
-    dp_alpha, dp_beta, dp_r2, dp_error, dp_model = regression_statistics(combined_data[['SPX D/P']], combined_data[['SPY']])
+    dp_alpha, dp_beta, dp_r2, dp_error, dp_model = regression_statistics(combined_data[['SPX D/P']],
+                                                                         combined_data[['SPY']])
 
     # Convert beta data type from one element series to a float
     beta_value = dp_beta.item()
@@ -48,7 +48,8 @@ For each, report the r-squared""")
 
     print("\nX as a single regressor, the earnings-price ratio.\n")
     # Compute the alpha, beta, r-squared, and epsilon of earning price ratio as X
-    ep_alpha, ep_beta, ep_r2, ep_error, ep_model = regression_statistics(combined_data[['SPX E/P']], combined_data[['SPY']])
+    ep_alpha, ep_beta, ep_r2, ep_error, ep_model = regression_statistics(combined_data[['SPX E/P']],
+                                                                         combined_data[['SPY']])
 
     # Convert beta data type from one element series to a float
     beta_value = ep_beta.item()
@@ -129,7 +130,9 @@ For each, report the r-squared""")
         # VaR (.05) = the fifth quantile of historic returns
         'VaR(.05)': backtest[['SPX D/P Returns', 'SPX E/P Returns', 'Three-Signals Returns']].quantile(0.05),
         # CVaR (.05) = the mean of the returns at or below the fifth quantile
-        'CVaR(.05)': backtest[['SPX D/P Returns', 'SPX E/P Returns', 'Three-Signals Returns']][backtest[['SPX D/P Returns', 'SPX E/P Returns', 'Three-Signals Returns']] <= backtest[['SPX D/P Returns', 'SPX E/P Returns', 'Three-Signals Returns']].quantile(0.05)].mean(),
+        'CVaR(.05)': backtest[['SPX D/P Returns', 'SPX E/P Returns', 'Three-Signals Returns']][
+            backtest[['SPX D/P Returns', 'SPX E/P Returns', 'Three-Signals Returns']] <= backtest[
+                ['SPX D/P Returns', 'SPX E/P Returns', 'Three-Signals Returns']].quantile(0.05)].mean(),
         'Alpha': pd.Series(alpha_dict),
         'Beta': pd.Series(beta_dict),
         'Information Ratio': pd.Series(info_ratio)})
@@ -145,7 +148,7 @@ the dynamic portfolio above under-perform the risk-free rate over this time?\n""
 
     # Import the data from 'risk-free rate' sheet in the Excel file gmo_analysis_data
     risk_free = pd.read_excel("gmo_analysis_data.xlsx",
-                        sheet_name='risk-free rate', header=0, index_col=0)
+                              sheet_name='risk-free rate', header=0, index_col=0)
 
     # Calculate the risk‐free annualized metrics
     rf = risk_free['TBill 3M']
@@ -194,7 +197,8 @@ That is, in how many periods is our forecasted excess return negative?\n""")
 
     # Turn into a Series and assign to the trading_strategy
     trading_strategy['Negative Periods'] = pd.Series(negative_periods, name='Negative Periods')
-    trading_strategy['Negative Periods in Percentage'] = pd.Series(negative_percentage, name='Negative Periods in Percentage')
+    trading_strategy['Negative Periods in Percentage'] = pd.Series(negative_percentage,
+                                                                   name='Negative Periods in Percentage')
 
     print(trading_strategy[['Negative Periods', 'Negative Periods in Percentage']])
 
@@ -211,7 +215,6 @@ That is, in how many periods is our forecasted excess return negative?\n""")
 E/P has a lower mean and volatility than SPY. This supports that out-performance of SPY bears increased risk.
 For r_gmo, GMWAX has a lower mean and volatility, which supports the statement. However, GMGEX has lower mean 
 and higher volatility than SPY, indicating increased risk may occur even in the absence of out-performance.""")
-
 
 
 def cal_drawdown(funds_data):
