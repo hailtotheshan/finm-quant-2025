@@ -444,27 +444,36 @@ def engineer_features(hist: pd.DataFrame) -> pd.DataFrame:
     return hist
 
 def engineer_and_scale(df):
+    # 1. Compute technical indicators and engineered features
+    df = technical_indicators(df)
+    df = engineer_features(df)
+
+    # 2. Select only numeric columns for scaling
+    num = df.select_dtypes(include=[np.number]).copy()
+
+    # 3. Scale features using z-score
     scaled = scale_features(num, method="zscore")
 
-    # Drop both labels from X
+    # 4. Split into feature matrix X and regression target y_reg
     X = scaled.drop(columns=['label_5d', 'ret_5d'], errors='ignore')
-
-    # Continuous 5-day return as regression target
     y_reg = scaled['ret_5d']
 
-    # drop collinear
+    # 5. Drop collinear features
     corr = X.corr().abs()
     upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
     to_drop = [c for c in upper.columns if any(upper[c] > 0.90)]
     X = X.drop(columns=to_drop)
-    # drop low‐variance
+
+    # 6. Drop low-variance features
     vt = VarianceThreshold(0.01)
     X_final = pd.DataFrame(
         vt.fit_transform(X),
         index=X.index,
         columns=X.columns[vt.get_support()]
     )
+
     return X_final, y_reg
+
 
 
 def apply_pca(X, variance_threshold=0.90):
