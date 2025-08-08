@@ -46,7 +46,8 @@ def main():
         y=y_reg,
         initial_train=200,
         test_size=50,
-        step_size=50
+        step_size=50,
+        model=LinearRegression()
     )
 
     # Binary label & classification
@@ -443,17 +444,12 @@ def engineer_features(hist: pd.DataFrame) -> pd.DataFrame:
     return hist
 
 def engineer_and_scale(df):
-    df = technical_indicators(df)
-    df = engineer_features(df)
-
-    # select numeric, z-score scale, drop collinear + low-variance
-    num = df.select_dtypes(include=[np.number]).copy()
     scaled = scale_features(num, method="zscore")
 
-    # X = everything except both labels
-    X = scaled.drop(columns=['label_5d','ret_5d'], errors='ignore')
+    # Drop both labels from X
+    X = scaled.drop(columns=['label_5d', 'ret_5d'], errors='ignore')
 
-    # y_reg is your continuous return
+    # Continuous 5-day return as regression target
     y_reg = scaled['ret_5d']
 
     # drop collinear
