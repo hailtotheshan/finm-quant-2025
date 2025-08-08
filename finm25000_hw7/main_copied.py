@@ -430,26 +430,32 @@ def engineer_features(hist: pd.DataFrame) -> pd.DataFrame:
     for lag in [1, 5, 10]:
         hist[f"mom_{lag}d"] = hist["last_price"] - hist["last_price"].shift(lag)
 
+        # ←—— ADD THIS LINE to compute the continuous 5-day return
+    hist["ret_5d"] = hist["last_price"].shift(-5) / hist["last_price"] - 1
+
     # Create 5-Day Forward Binary Label
     hist["label_5d"] = np.where(
-        hist["last_price"].shift(-5) > hist["last_price"],
-        1,
-        0
+        hist["last_price"].shift(-5) > hist["last_price"], 1, 0
     )
 
     # Drop all NaNs introduced by shifts/rolling
     hist.dropna(how="any", inplace=True)
-
     return hist
-
 
 def engineer_and_scale(df):
     df = technical_indicators(df)
     df = engineer_features(df)
-    # select numeric, minmax-scale, drop collinear + low‐variance
+
+    # select numeric, z-score, drop collinear/low-variance
     num = df.select_dtypes(include=[np.number]).copy()
     scaled = scale_features(num, method="zscore")
-    X = scaled.drop(columns=['label_5d'], errors='ignore')
+
+    # X = everything except both labels
+    X = scaled.drop(columns=['label_5d','ret_5d'], errors='ignore')
+
+    # y_reg is your continuous return
+    y_reg = scaled['ret_5d']
+
     # drop collinear
     corr = X.corr().abs()
     upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
@@ -462,7 +468,7 @@ def engineer_and_scale(df):
         index=X.index,
         columns=X.columns[vt.get_support()]
     )
-    return X_final, scaled.get('label_5d', None)
+    return X_final, y_reg
 
 
 def apply_pca(X, variance_threshold=0.90):
