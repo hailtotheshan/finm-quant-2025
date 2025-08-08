@@ -488,27 +488,23 @@ def run_regression_flow(X, y, initial_train, test_size, step_size, model=None):
     wf_records = []
     n_samples = X.shape[0]
     start = initial_train
-
     block = 0
+    # expanding‐window walk‐forward, block numbers start at 1
     while start + test_size <= n_samples:
+        block += 1
         train_idx = list(range(start))
         test_idx = list(range(start, start + test_size))
-
         X_train, y_train = X.iloc[train_idx], y.iloc[train_idx]
         X_test, y_test = X.iloc[test_idx], y.iloc[test_idx]
-
         clf = clone(model)
         clf.fit(X_train, y_train)
         y_pred = clf.predict(X_test)
-
+        # tag every sample in this block with the same block number
         for true, pred in zip(y_test, y_pred):
             wf_records.append({
                 'block': block,
                 'y_true': true,
-                'y_pred': pred
-            })
-
-        block += 1
+                'y_pred': pred})
         start += step_size
 
     # Assemble walk‐forward DataFrame
