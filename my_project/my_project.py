@@ -35,9 +35,10 @@ def get_hk_stock_daily_returns(hk_stocks, start_date, end_date):
 
     return returns
 
+
 def tangency_portfolio(returns, risk_free_rate=0.02):
     mean_returns = returns.mean() * 252  # annualized
-    cov_matrix = returns.cov() * 252     # annualized
+    cov_matrix = returns.cov() * 252  # annualized
 
     num_assets = len(mean_returns)
     args = (mean_returns, cov_matrix, risk_free_rate)
@@ -80,22 +81,7 @@ def draw_heatmap(df, plot_title=""):
     plt.show()
 
 
-def main():
-    hk_stocks = [
-        '6862.HK', '2015.HK', '3690.HK', '3988.HK', '0388.HK', '1398.HK',
-        '0941.HK', '1211.HK', '1299.HK', '9992.HK', '1357.HK', '0005.HK',
-        '2331.HK', '2276.HK', '1810.HK', '9626.HK', '9633.HK', '9988.HK',
-        '0700.HK', '0133.HK', '0806.HK', '1788.HK', '3037.HK', '1375.HK',
-        '0881.HK', '9901.HK', '2388.HK', '0066.HK', '3692.HK', '1378.HK',
-        '6618.HK', '0386.HK', '0316.HK', '0857.HK', '0267.HK', '9618.HK',
-        '2313.HK', '0762.HK', '0011.HK', '0300.HK', '1088.HK', '0288.HK',
-        '9961.HK', '6690.HK', '2899.HK', '0669.HK', '2319.HK', '0291.HK',
-        '0992.HK', '2628.HK', '0241.HK', '2318.HK'
-    ]
-    # hk_stocks = ['1788.HK', '0806.HK', '2015.HK']
-    start_date = "2024-01-01"
-    end_date = "2025-01-01"
-
+def portfolio_performance(hk_stocks, start_date, end_date):
     print("Downloading data...")
     stock_data = get_hk_stock_daily_returns(hk_stocks, start_date, end_date)
 
@@ -124,6 +110,58 @@ def main():
     print(f"Annualized volatility:  {volatility:.4%}")
     print(f"Sharpe Ratio:           {sharpe_ratio:.4f}")
 
+    return weights
+
+
+def main():
+    # Assume risk-free rate is 2% annualized (change as needed)
+    risk_free_rate = 0.02
+
+    hk_stocks = [
+        '6862.HK', '2015.HK', '3690.HK', '3988.HK', '0388.HK', '1398.HK',
+        '0941.HK', '1211.HK', '1299.HK', '9992.HK', '1357.HK', '0005.HK',
+        '2331.HK', '2276.HK', '1810.HK', '9626.HK', '9633.HK', '9988.HK',
+        '0700.HK', '0133.HK', '0806.HK', '1788.HK', '3037.HK', '1375.HK',
+        '0881.HK', '9901.HK', '2388.HK', '0066.HK', '3692.HK', '1378.HK',
+        '6618.HK', '0386.HK', '0316.HK', '0857.HK', '0267.HK', '9618.HK',
+        '2313.HK', '0762.HK', '0011.HK', '0300.HK', '1088.HK', '0288.HK',
+        '9961.HK', '6690.HK', '2899.HK', '0669.HK', '2319.HK', '0291.HK',
+        '0992.HK', '2628.HK', '0241.HK', '2318.HK'
+    ]
+    # hk_stocks = ['1788.HK', '0806.HK', '2015.HK']
+    start_date = "2024-01-01"
+    end_date = "2025-01-01"
+
+    weights = portfolio_performance(hk_stocks, start_date, end_date)
+
+    """print("Downloading data...")
+    stock_data = get_hk_stock_daily_returns(hk_stocks, start_date, end_date)
+
+    # Assume risk-free rate is 2% annualized (change as needed)
+    risk_free_rate = 0.02
+
+    print("Calculating tangency portfolio...")
+    weights = tangency_portfolio(stock_data, risk_free_rate)
+
+    # Portfolio metrics
+    mean_returns = stock_data.mean() * 252
+    cov_matrix = stock_data.cov() * 252
+
+    expected_return = np.dot(weights, mean_returns)
+    volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
+    sharpe_ratio = (expected_return - risk_free_rate) / volatility
+
+    print("\nTangency Portfolio (Maximum Sharpe Ratio) Results:")
+    print("---------------------------------------------------")
+    print("Stock        Weight")
+    print("-------------------")
+    for stock, weight in zip(hk_stocks, weights):
+        print(f"{stock:10s}  {weight:.4f}")
+    print("-------------------")
+    print(f"Expected annual return: {expected_return:.4%}")
+    print(f"Annualized volatility:  {volatility:.4%}")
+    print(f"Sharpe Ratio:           {sharpe_ratio:.4f}")"""
+
     # Testing period performance (using SAME weights but test data's mean/cov)
     test_start = '2025-01-01'
     test_end = '2026-01-01'
@@ -141,7 +179,7 @@ def main():
     print(f"Annualized volatility:         {volatility_test:.4%}")
     print(f"Sharpe Ratio:                  {sharpe_ratio_test:.4f}")
 
-    draw_heatmap(stock_data)
+    # draw_heatmap(stock_data)
 
 
 if __name__ == "__main__":
