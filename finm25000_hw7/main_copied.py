@@ -225,86 +225,6 @@ def evaluate_and_interpret(
 
 
 
-def interpret_model(model, feature_names, X=None, top_n=10):
-    """
-    Return a DataFrame of features sorted by importance.
-    - If model has feature_importances_: use them.
-    - Else if model has coef_: use coefficients.
-    - Else if SHAP is available and X is provided: compute mean(|SHAP|).
-    """
-    if hasattr(model, 'feature_importances_'):
-        imps = model.feature_importances_
-        df = pd.DataFrame({'feature': feature_names, 'importance': imps})
-
-    elif hasattr(model, 'coef_'):
-        # coef_ may be multi-dimensional; flatten to 1d
-        coefs = model.coef_.ravel()
-        df = pd.DataFrame({'feature': feature_names, 'importance': np.abs(coefs)})
-        df['coef'] = coefs
-
-    elif _SHAP_AVAILABLE and X is not None:
-        explainer = shap.Explainer(model, X)
-        shap_vals = explainer(X)
-        mean_abs = np.mean(np.abs(shap_vals.values), axis=0)
-        df = pd.DataFrame({'feature': feature_names, 'importance': mean_abs})
-
-    else:
-        raise ValueError("Model has no importances/coefficients and SHAP not available.")
-
-    df = df.sort_values('importance', ascending=False).reset_index(drop=True)
-    return df.head(top_n)
-
-
-def plot_confusion_matrix(y_true, y_pred, labels=[0,1], cmap='Blues'):
-    """
-    Plot a confusion matrix heatmap.
-    """
-    cm = confusion_matrix(y_true, y_pred, labels=labels)
-    sns.heatmap(cm, annot=True, fmt='d', cmap=cmap,
-                xticklabels=labels, yticklabels=labels)
-    plt.xlabel('Predicted')
-    plt.ylabel('Actual')
-    plt.title('Confusion Matrix')
-    plt.show()
-
-def plot_roc_curve(y_true, y_proba, label='Model'):
-    """
-    Plot ROC curve and display AUC in legend.
-    """
-    fpr, tpr, _ = roc_curve(y_true, y_proba)
-    roc_auc = auc(fpr, tpr)
-    plt.plot(fpr, tpr, lw=2, label=f'{label} (AUC = {roc_auc:.3f})')
-    plt.plot([0,1], [0,1], '--', color='gray')
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title('ROC Curve')
-    plt.legend(loc='best')
-    plt.grid(alpha=0.3)
-    plt.show()
-
-def plot_prediction_curve(wf_df, kind='regression'):
-    """
-    Overlay actual vs predicted over time.
-    - kind='regression': continuous y_true & y_pred
-    - kind='classification': step plot of binary y_true & y_pred
-    """
-    if kind == 'regression':
-        plt.plot(wf_df.index, wf_df['y_true'], label='Actual', alpha=0.8)
-        plt.plot(wf_df.index, wf_df['y_pred'], label='Predicted', alpha=0.8)
-        plt.ylabel('Value')
-        plt.title('Regression: Actual vs Predicted')
-    else:
-        plt.step(wf_df.index, wf_df['y_true'], where='post',
-                 label='Actual', alpha=0.8)
-        plt.step(wf_df.index, wf_df['y_pred'], where='post',
-                 label='Predicted', alpha=0.8)
-        plt.ylabel('Class')
-        plt.title('Classification: Actual vs Predicted')
-    plt.xlabel('Time')
-    plt.legend()
-    plt.grid(alpha=0.3)
-    plt.show()
-
 
 def get_regression_metrics(y_true, y_pred):
     """
@@ -529,7 +449,7 @@ def engineer_and_scale(df):
     df = engineer_features(df)
     # select numeric, minmax-scale, drop collinear + low‐variance
     num = df.select_dtypes(include=[np.number]).copy()
-    scaled = scale_features(num, method="minmax")
+    scaled = scale_features(num, method="zscore")
     X = scaled.drop(columns=['label_5d'], errors='ignore')
     # drop collinear
     corr = X.corr().abs()
@@ -811,36 +731,18 @@ def walk_forward_clf(df, feature_cols, target_col,
     return pd.DataFrame(records)
 
 
-def scale_features(df, method='minmax'):
-    """
-    Scale numeric columns of df using either min-max normalization or standard scaling.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Input DataFrame with feature columns.
-    method : {'minmax', 'standard'}
-        'minmax'    → scales each feature to [0, 1]
-        'standard'  → zero mean and unit variance
-
-    Returns
-    -------
-    pandas.DataFrame
-        A new DataFrame with the same index/columns, but numeric columns scaled.
-    """
-    df_scaled = df.copy()
-    num_cols = df_scaled.select_dtypes(include=[np.number]).columns
-
-    if method == 'minmax':
+def scale_features(df, method="minmax"):
+    if method == "minmax":
         scaler = MinMaxScaler()
-    elif method == 'standard':
+    elif method == "zscore":
         scaler = StandardScaler()
     else:
-        raise ValueError("`method` must be either 'minmax' or 'standard'")
+        raise ValueError("method must be 'minmax' or 'zscore'")
 
-    # Fit & transform only on numeric columns
-    df_scaled[num_cols] = scaler.fit_transform(df_scaled[num_cols])
-    return df_scaled
+    cols = df.columns
+    scaled_array = scaler.fit_transform(df)
+    return pd.DataFrame(scaled_array, index=df.index, columns=cols)
+
 
 
 if __name__ == "__main__":
