@@ -24,12 +24,13 @@ from sklearn.metrics import (
 )
 import seaborn as sns
 from sklearn.metrics import roc_curve, auc
+
 try:
     import shap
+
     _SHAP_AVAILABLE = True
 except ImportError:
     _SHAP_AVAILABLE = False
-
 
 
 def main():
@@ -50,8 +51,8 @@ def main():
 
     # Binary label & classification
     y_bin = (
-        raw['last_price'].shift(-5)
-        > raw['last_price']
+            raw['last_price'].shift(-5)
+            > raw['last_price']
     ).astype(int).loc[X_final.index]
 
     wf_clf, clf_summary = run_classification_flow(
@@ -98,15 +99,15 @@ def main():
 
 
 def evaluate_and_interpret(
-    wf_reg: pd.DataFrame,
-    reg_summary: pd.DataFrame,
-    wf_clf: pd.DataFrame,
-    clf_summary: pd.DataFrame,
-    model_reg,
-    model_clf,
-    X_reg: pd.DataFrame,
-    X_clf: pd.DataFrame,
-    top_n: int = 10
+        wf_reg: pd.DataFrame,
+        reg_summary: pd.DataFrame,
+        wf_clf: pd.DataFrame,
+        clf_summary: pd.DataFrame,
+        model_reg,
+        model_clf,
+        X_reg: pd.DataFrame,
+        X_clf: pd.DataFrame,
+        top_n: int = 10
 ):
     # right at the top of evaluate_and_interpret:
     wf_reg = wf_reg.copy()
@@ -118,7 +119,7 @@ def evaluate_and_interpret(
     # ── 0. Coerce 'block' column into both summaries ──
     for df in (reg_summary, clf_summary):
         if 'block' not in df.columns:
-            df.reset_index(inplace=True)            # moves index into column
+            df.reset_index(inplace=True)  # moves index into column
             df.rename(columns={df.columns[0]: 'block'}, inplace=True)
 
     # ── 1. Combined Evaluation Table ──
@@ -139,7 +140,7 @@ def evaluate_and_interpret(
     plt.figure(figsize=(4, 3))
     cm = confusion_matrix(wf_clf['y_true'], wf_clf['y_pred'])
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                xticklabels=[0,1], yticklabels=[0,1])
+                xticklabels=[0, 1], yticklabels=[0, 1])
     plt.xlabel('Predicted')
     plt.ylabel('Actual')
     plt.title('Confusion Matrix')
@@ -152,7 +153,7 @@ def evaluate_and_interpret(
         roc_auc = auc(fpr, tpr)
         plt.figure(figsize=(5, 4))
         plt.plot(fpr, tpr, lw=2, label=f'AUC = {roc_auc:.3f}')
-        plt.plot([0,1], [0,1], '--', color='gray')
+        plt.plot([0, 1], [0, 1], '--', color='gray')
         plt.xlabel('False Positive Rate')
         plt.ylabel('True Positive Rate')
         plt.title('ROC Curve')
@@ -223,24 +224,22 @@ def evaluate_and_interpret(
     display(_interpret(model_clf, X_clf.columns.tolist(), X_clf))
 
 
-
-
-
 def get_regression_metrics(y_true, y_pred):
     """
     Compute regression metrics.
     Returns a pandas Series with MSE, RMSE, MAE, and R².
     """
-    mse  = mean_squared_error(y_true, y_pred)
+    mse = mean_squared_error(y_true, y_pred)
     rmse = np.sqrt(mse)
-    mae  = mean_absolute_error(y_true, y_pred)
-    r2   = r2_score(y_true, y_pred)
+    mae = mean_absolute_error(y_true, y_pred)
+    r2 = r2_score(y_true, y_pred)
     return pd.Series({
-        'MSE':  mse,
+        'MSE': mse,
         'RMSE': rmse,
-        'MAE':  mae,
-        'R2':   r2
+        'MAE': mae,
+        'R2': r2
     })
+
 
 def get_classification_metrics(y_true, y_pred, y_proba=None):
     """
@@ -249,10 +248,10 @@ def get_classification_metrics(y_true, y_pred, y_proba=None):
     If y_proba is provided, also returns ROC AUC.
     """
     metrics = {
-        'Accuracy':  accuracy_score(y_true, y_pred),
+        'Accuracy': accuracy_score(y_true, y_pred),
         'Precision': precision_score(y_true, y_pred, zero_division=0),
-        'Recall':    recall_score(y_true, y_pred, zero_division=0),
-        'F1':        f1_score(y_true, y_pred, zero_division=0)
+        'Recall': recall_score(y_true, y_pred, zero_division=0),
+        'F1': f1_score(y_true, y_pred, zero_division=0)
     }
     if y_proba is not None:
         try:
@@ -493,10 +492,10 @@ def run_regression_flow(X, y, initial_train, test_size, step_size, model=None):
     block = 0
     while start + test_size <= n_samples:
         train_idx = list(range(start))
-        test_idx  = list(range(start, start + test_size))
+        test_idx = list(range(start, start + test_size))
 
         X_train, y_train = X.iloc[train_idx], y.iloc[train_idx]
-        X_test,  y_test  = X.iloc[test_idx],  y.iloc[test_idx]
+        X_test, y_test = X.iloc[test_idx], y.iloc[test_idx]
 
         clf = clone(model)
         clf.fit(X_train, y_train)
@@ -744,6 +743,69 @@ def scale_features(df, method="minmax"):
     return pd.DataFrame(scaled_array, index=df.index, columns=cols)
 
 
-
 if __name__ == "__main__":
     main()
+
+
+"""Roadmap to Fix and Improve Your Models
+1. First Priorities: Pipeline & Metric Sanity
+Align Block Indexing
+
+Ensure both regression and classification summaries use the same block numbering (start from 0 or 1 consistently).
+
+Verify run_classification_flow and run_regression_flow generate matching block columns so your combined table has no NaNs.
+
+Validate Targets & Baselines
+
+Confirm that y_reg and y_bin align exactly with your feature index after scaling/PCA (no off‐by‐one shifts).
+
+Compute a naive “predict mean” baseline for regression and a dummy classifier (always predict majority class) to benchmark your actual models.
+
+Standardize Scaling Strategy
+
+Replace mixed MinMax and Standard scaling with a single, consistent approach (e.g. StandardScaler for returns, vol, momentum; MinMax for bounded indicators).
+
+Exclude any discrete/binary signals from scaling.
+
+Fix Walk‐Forward Logic
+
+Decide on expanding vs rolling window. Right now you mix expanding for classification and non‐overlapping for regression.
+
+Ensure each test block is out‐of‐sample and no future leakage.
+
+Strengthen Metric Computation
+
+Add ROC AUC and confusion‐matrix breakdown per block.
+
+Handle zero‐division explicitly in precision/recall (you already use zero_division=0—verify it’s applied everywhere).
+
+2. Next Steps: Feature Engineering & Modeling
+Hybrid Indicator Signals
+
+Create discrete buy/hold/sell signals (–1/0/1) for key indicators (RSI, MACD cross) alongside their continuous readings.
+
+Feed discrete signals directly to tree‐based models or as extra columns in PCA.
+
+Expand & Enrich Features
+
+Add volatility‐regime flags (cluster high vs low vol) and longer‐term momentum (20d, 50d).
+
+Incorporate exogenous variables: sector ETF returns, interest‐rate moves, VIX‐style indices.
+
+Model Upgrades & Tuning
+
+Swap LinearRegression for regularized variants (Ridge/Lasso) and grid‐search α.
+
+Try non‐linear learners: RandomForest, XGBoost, LightGBM with hyperparameter tuning (max_depth, n_estimators, learning_rate).
+
+Class Imbalance & Thresholding
+
+Use class weights or SMOTE to balance the “up”/“down” labels.
+
+Optimize decision thresholds via precision–recall or F1 curves instead of default 0.5.
+
+Dimensionality Reduction Alternatives
+
+Compare PCA vs KernelPCA or ICA to capture non‐linear structure.
+
+Evaluate feature selection methods (variance threshold, mutual information, LASSO selection)."""
