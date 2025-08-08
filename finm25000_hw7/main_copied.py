@@ -5,7 +5,7 @@ from sklearn.base import clone
 import pandas as pd
 import numpy as np
 from market_data_loader import MarketDataLoader
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.feature_selection import VarianceThreshold
 from sklearn.linear_model import LinearRegression
@@ -446,7 +446,7 @@ def engineer_and_scale(df):
     df = technical_indicators(df)
     df = engineer_features(df)
 
-    # select numeric, z-score, drop collinear/low-variance
+    # select numeric, z-score scale, drop collinear + low-variance
     num = df.select_dtypes(include=[np.number]).copy()
     scaled = scale_features(num, method="zscore")
 
@@ -732,10 +732,8 @@ def walk_forward_clf(df, feature_cols, target_col,
     return pd.DataFrame(records)
 
 
-def scale_features(df, method="minmax"):
-    if method == "minmax":
-        scaler = MinMaxScaler()
-    elif method == "zscore":
+def scale_features(df, method="zscore"):
+    if method == "zscore":
         scaler = StandardScaler()
     else:
         raise ValueError("method must be 'minmax' or 'zscore'")
