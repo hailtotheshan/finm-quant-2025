@@ -24,13 +24,15 @@ from sklearn.metrics import (
 )
 import seaborn as sns
 from sklearn.metrics import roc_curve, auc
-
 try:
     import shap
 
     _SHAP_AVAILABLE = True
 except ImportError:
     _SHAP_AVAILABLE = False
+from sklearn.cluster import KMeans
+from scipy.cluster.hierarchy import linkage, dendrogram, fcluster
+from sklearn.metrics import silhouette_score
 
 
 def main():
@@ -97,6 +99,12 @@ def main():
         X_clf=X_final,
         top_n=10
     )
+
+    # ── Part 5: Unsupervised Exploration ──
+    print("\n\n=== Part 5: Unsupervised Exploration ===")
+    # Use your final feature matrix X_final (or X_pca if you prefer clustering PCs)
+    kmeans_labels, hier_labels, linkage_mat = run_unsupervised_exploration(X_final, final_k=4)
+
 
 
 def evaluate_and_interpret(
@@ -420,51 +428,59 @@ def load_and_clean(ticker, interval="1d", period="3y"):
 
 def engineer_features(hist: pd.DataFrame) -> pd.DataFrame:
     """
-    Compute returns, rolling volatility, momentum features,
-    5-day forward binary label, and drop any rows with NaNs.
+    Compute daily returns, rolling volatility, momentum,
+    continuous 5-day return, 5-day up/down label, then drop NaNs.
     """
-    # Add Returns & Rolling Volatility
+    # 1) Daily pct return & 20-day vol
     hist["return"] = hist["last_price"].pct_change()
-    hist["vol"] = hist["return"].rolling(20).std()
+    hist["vol"]    = hist["return"].rolling(20).std()
 
-    # Add Derived Momentum Features
+    # 2) Momentum features
     for lag in [1, 5, 10]:
         hist[f"mom_{lag}d"] = hist["last_price"] - hist["last_price"].shift(lag)
 
-        # ←—— ADD THIS LINE to compute the continuous 5-day return
+    # ── NEW: continuous 5-day forward return
     hist["ret_5d"] = hist["last_price"].shift(-5) / hist["last_price"] - 1
 
-    # Create 5-Day Forward Binary Label
+    # ── binary up/down label over next 5 days
     hist["label_5d"] = np.where(
-        hist["last_price"].shift(-5) > hist["last_price"], 1, 0
+        hist["last_price"].shift(-5) > hist["last_price"],
+        1,
+        0
     )
 
-    # Drop all NaNs introduced by shifts/rolling
+    # 3) drop any rows with NaNs introduced by shifts/rolling
     hist.dropna(how="any", inplace=True)
     return hist
 
-def engineer_and_scale(df):
-    # 1. Compute technical indicators and engineered features
+
+def engineer_and_scale(df: pd.DataFrame):
+    """
+    1) Add technical indicators
+    2) Engineered features (incl. ret_5d & label_5d)
+    3) z-score scale all numeric cols
+    4) Split into X (drop both labels) and y_reg = ret_5d
+    5) Drop collinear & low-variance
+    """
+    # Step 1–2: build features
     df = technical_indicators(df)
     df = engineer_features(df)
 
-    # 2. Select only numeric columns for scaling
-    num = df.select_dtypes(include=[np.number]).copy()
-
-    # 3. Scale features using z-score
+    # Step 3: select numeric & z-score scale
+    num    = df.select_dtypes(include=[np.number]).copy()
     scaled = scale_features(num, method="zscore")
 
-    # 4. Split into feature matrix X and regression target y_reg
-    X = scaled.drop(columns=['label_5d', 'ret_5d'], errors='ignore')
-    y_reg = scaled['ret_5d']
+    # Step 4: separate X/y_reg
+    X     = scaled.drop(columns=["label_5d", "ret_5d"], errors="ignore")
+    y_reg = scaled["ret_5d"]
 
-    # 5. Drop collinear features
-    corr = X.corr().abs()
+    # Step 5a: drop collinear (corr > 0.90)
+    corr  = X.corr().abs()
     upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
     to_drop = [c for c in upper.columns if any(upper[c] > 0.90)]
     X = X.drop(columns=to_drop)
 
-    # 6. Drop low-variance features
+    # Step 5b: drop low-variance (<0.01)
     vt = VarianceThreshold(0.01)
     X_final = pd.DataFrame(
         vt.fit_transform(X),
@@ -473,6 +489,7 @@ def engineer_and_scale(df):
     )
 
     return X_final, y_reg
+
 
 
 
@@ -746,6 +763,82 @@ def scale_features(df, method="zscore"):
     cols = df.columns
     scaled_array = scaler.fit_transform(df)
     return pd.DataFrame(scaled_array, index=df.index, columns=cols)
+
+
+def plot_silhouette_scores(X, ks=range(2, 11)):
+    """Compute & plot silhouette score vs. number of clusters."""
+    X_scaled = StandardScaler().fit_transform(X)
+    sil_scores = []
+    for k in ks:
+        labels = KMeans(n_clusters=k, random_state=42).fit_predict(X_scaled)
+        sil_scores.append(silhouette_score(X_scaled, labels))
+    plt.figure(figsize=(6,3))
+    plt.plot(list(ks), sil_scores, 'o-', color='tab:blue')
+    plt.xlabel('k (number of clusters)')
+    plt.ylabel('Average silhouette')
+    plt.title('Silhouette Analysis')
+    plt.grid(alpha=0.3)
+    plt.show()
+
+def plot_dendrogram(X, truncate_level=5):
+    """Compute Ward linkage and plot truncated dendrogram."""
+    X_scaled = StandardScaler().fit_transform(X)
+    Z = linkage(X_scaled, method='ward')
+    plt.figure(figsize=(8,4))
+    dendrogram(Z, truncate_mode='level', p=truncate_level, leaf_rotation=90)
+    plt.xlabel('Sample index or (cluster size)')
+    plt.ylabel('Ward distance')
+    plt.title('Hierarchical Clustering Dendrogram')
+    plt.tight_layout()
+    plt.show()
+    return Z
+
+def assign_and_plot_time_clusters(X, labels, title='Cluster Assignments Over Time'):
+    """Color‐map each timestamp by its cluster label."""
+    df = pd.DataFrame({'cluster': labels}, index=X.index)
+    plt.figure(figsize=(12,2))
+    plt.pcolormesh(df.index, [0,1], df['cluster'].values[np.newaxis,:],
+                   cmap='tab20', shading='auto')
+    plt.yticks([])
+    plt.xlabel('Date')
+    plt.title(title)
+    plt.colorbar(label='cluster')
+    plt.tight_layout()
+    plt.show()
+
+def run_unsupervised_exploration(X, final_k=4):
+    """
+    1) Silhouette plot for k=2…10
+    2) Hierarchical dendrogram (truncated)
+    3) Assign final_k clusters via KMeans & plot regimes over time
+    """
+    # 1. Silhouette
+    plot_silhouette_scores(X)
+
+    # 2. Dendrogram + get linkage matrix
+    Z = plot_dendrogram(X)
+
+    # 3. Final KMeans clustering
+    X_scaled = StandardScaler().fit_transform(X)
+    km = KMeans(n_clusters=final_k, random_state=42).fit(X_scaled)
+    labels = km.labels_
+
+    # 4. Show cluster centroids in original feature space
+    centroids = pd.DataFrame(km.cluster_centers_, columns=X.columns)
+    print(f"\nCluster centroids (in scaled‐feature space):\n{centroids}\n")
+
+    # 5. Plot cluster assignments over time
+    assign_and_plot_time_clusters(X, labels,
+        title=f'KMeans (k={final_k}) Regimes Over Time'
+    )
+
+    # 6. (Optional) Flat clusters from hierarchy
+    h_labels = fcluster(Z, t=final_k, criterion='maxclust')
+    assign_and_plot_time_clusters(X, h_labels,
+        title=f'Hierarchical (k={final_k}) Regimes Over Time'
+    )
+    return labels, h_labels, Z
+
 
 
 if __name__ == "__main__":

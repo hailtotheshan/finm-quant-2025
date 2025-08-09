@@ -4,6 +4,7 @@ from scipy.optimize import minimize
 import yfinance as yf
 import matplotlib.pyplot as plt
 
+
 def get_hk_stock_daily_returns(hk_stocks, start_date, end_date):
     prices = yf.download(
         tickers=hk_stocks,
@@ -19,6 +20,7 @@ def get_hk_stock_daily_returns(hk_stocks, start_date, end_date):
     returns = returns.ffill(axis=0).bfill(axis=0)
     return returns
 
+
 def tangency_portfolio(returns, risk_free_rate=0.02):
     mean_returns = returns.mean() * 252
     cov_matrix = returns.cov() * 252
@@ -26,10 +28,12 @@ def tangency_portfolio(returns, risk_free_rate=0.02):
     args = (mean_returns, cov_matrix, risk_free_rate)
     constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
     bounds = tuple((0, 1) for _ in range(num_assets))
+
     def neg_sharpe_ratio(weights, mean_returns, cov_matrix, risk_free_rate):
         port_return = np.dot(weights, mean_returns)
         port_vol = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
         return - (port_return - risk_free_rate) / port_vol
+
     init_guess = np.array([1. / num_assets] * num_assets)
     result = minimize(
         neg_sharpe_ratio,
@@ -40,6 +44,7 @@ def tangency_portfolio(returns, risk_free_rate=0.02):
         constraints=constraints
     )
     return result.x
+
 
 def portfolio_metrics(weights, returns, risk_free_rate=0.02):
     mean_returns = returns.mean() * 252
@@ -55,7 +60,8 @@ def portfolio_metrics(weights, returns, risk_free_rate=0.02):
     drawdown = (cumulative / peak) - 1
     max_dd = drawdown.min()
     max_dd_end = drawdown.idxmin() if not drawdown.isna().all() else None
-    max_dd_start = cumulative[:max_dd_end].idxmax() if max_dd_end is not None and not cumulative[:max_dd_end].empty else None
+    max_dd_start = cumulative[:max_dd_end].idxmax() if max_dd_end is not None and not cumulative[
+                                                                                      :max_dd_end].empty else None
     return {
         'mean': expected_return,
         'vol': volatility,
@@ -68,6 +74,7 @@ def portfolio_metrics(weights, returns, risk_free_rate=0.02):
         'daily_returns': daily_port_ret,
     }
 
+
 def rolling_backtest(hk_stocks, start_year, end_year, risk_free_rate=0.02, min_stocks=5):
     results = []
     all_dates = []
@@ -75,8 +82,8 @@ def rolling_backtest(hk_stocks, start_year, end_year, risk_free_rate=0.02, min_s
     for year in range(start_year, end_year):
         train_start = f"{year}-01-01"
         train_end = f"{year}-12-31"
-        test_start = f"{year+1}-01-01"
-        test_end = f"{year+1}-12-31"
+        test_start = f"{year + 1}-01-01"
+        test_end = f"{year + 1}-12-31"
         print(f"\nBacktest: Train {train_start} to {train_end}, Test {test_start} to {test_end}")
         try:
             train_returns = get_hk_stock_daily_returns(hk_stocks, train_start, train_end)
@@ -103,6 +110,7 @@ def rolling_backtest(hk_stocks, start_year, end_year, risk_free_rate=0.02, min_s
             continue
     return pd.DataFrame(results), pd.Series(all_cumrets, index=all_dates)
 
+
 def visualize_backtest(df, cumrets):
     plt.figure(figsize=(14, 5))
     plt.subplot(121)
@@ -121,6 +129,7 @@ def visualize_backtest(df, cumrets):
     plt.tight_layout()
     plt.show()
 
+
 def print_overall_performance(df):
     print("\n==== Overall Out-of-Sample Performance ====")
     print(f"Mean annual return: {df['mean'].mean():.4%}")
@@ -132,7 +141,8 @@ def print_overall_performance(df):
     dd_row = df[df['max_drawdown'] == min_dd].iloc[0]
     print(f"Max drawdown: {min_dd:.2%}")
     print(f"Drawdown from {dd_row['max_dd_start']} to {dd_row['max_dd_end']}")
-    print("="*55)
+    print("=" * 55)
+
 
 def main():
     hk_stocks = [
@@ -148,11 +158,12 @@ def main():
 
     visualize_backtest(df, cumrets)
     print_overall_performance(df)
-    print(df[['year','n_stocks','mean','vol','sharpe','VaR','CVaR','max_drawdown','max_dd_start','max_dd_end']].to_string(index=False))
+    print(df[['year', 'n_stocks', 'mean', 'vol', 'sharpe', 'VaR', 'CVaR', 'max_drawdown', 'max_dd_start',
+              'max_dd_end']].to_string(index=False))
+
 
 if __name__ == "__main__":
     main()
-
 
 """
 ==== Overall Out-of-Sample Performance ====
