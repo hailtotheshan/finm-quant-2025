@@ -1,7 +1,6 @@
 # Copilot is used in this file to implement a walk-forward validation framework
 
 import os
-import backtesting
 os.environ["OMP_NUM_THREADS"] = "3"
 from IPython.display import display
 from sklearn.base import clone
@@ -27,7 +26,6 @@ from sklearn.metrics import (
 )
 import seaborn as sns
 from sklearn.metrics import roc_curve, auc
-
 try:
     import shap
 
@@ -37,6 +35,8 @@ except ImportError:
 from sklearn.cluster import KMeans
 from scipy.cluster.hierarchy import linkage, dendrogram, fcluster
 from sklearn.metrics import silhouette_score
+from backtesting import Strategy
+from backtesting import Backtest
 
 
 def main():
@@ -136,10 +136,41 @@ def main():
     df_bt = df_bt.join(signal_series, how='left')
 
     # 3) Fill any gaps (no signal → flat)
-    df_bt['signal'].fillna(0, inplace=True)
+    # Avoid chained assignment by doing a standard assignment
+    df_bt['signal'] = df_bt['signal'].fillna(0)
 
-    print(df_bt)
+    bt = Backtest(
+        df_bt,
+        ModelSignalStrategy,
+        cash=10_000,
+        commission=0.002
+    )
 
+    stats = bt.run()
+    bt.plot()
+    print(stats)
+
+
+class ModelSignalStrategy(Strategy):
+    def init(self):
+        # Backtesting.py will create self.data.signal
+        self.sig = self.data.signal
+
+    def next(self):
+        s = self.sig[-1]  # current bar’s signal
+
+        # Long-only classification example:
+        if s == 1:
+            if not self.position:
+                self.buy()
+        else:
+            if self.position:
+                self.position.close()
+
+        # For long/short regression, use:
+        # if s ==  1: self.buy()
+        # elif s == -1: self.sell()
+        # else:            self.position.close()
 
 
 def evaluate_and_interpret(
