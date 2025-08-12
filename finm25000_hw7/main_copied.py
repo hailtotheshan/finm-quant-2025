@@ -139,6 +139,17 @@ def main():
     # Avoid chained assignment by doing a standard assignment
     df_bt['signal'] = df_bt['signal'].fillna(0)
 
+    # 1) Align tz / drop tz so indexes actually match
+    df_bt.index = df_bt.index.tz_convert(None)
+    signal_series.index = signal_series.index.tz_convert(None)
+
+    # 2) Shift your signal *forward* so that a prediction made at date T
+    #    is executed at T+1’s open
+    sig = signal_series.shift(1)
+
+    # 3) Reindex onto your price DataFrame & fill default flat‐market (0)
+    df_bt['signal'] = sig.reindex(df_bt.index).fillna(0).astype(int)
+
     bt = Backtest(
         df_bt,
         ModelSignalStrategy,
