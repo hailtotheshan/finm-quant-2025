@@ -1,5 +1,8 @@
 # Copilot is used in this file to implement a walk-forward validation framework
 
+import os
+import backtesting
+os.environ["OMP_NUM_THREADS"] = "3"
 from IPython.display import display
 from sklearn.base import clone
 import pandas as pd
@@ -24,6 +27,7 @@ from sklearn.metrics import (
 )
 import seaborn as sns
 from sklearn.metrics import roc_curve, auc
+
 try:
     import shap
 
@@ -104,6 +108,37 @@ def main():
     print("\n\n=== Part 5: Unsupervised Exploration ===")
     # Use your final feature matrix X_final (or X_pca if you prefer clustering PCs)
     kmeans_labels, hier_labels, linkage_mat = run_unsupervised_exploration(X_final, final_k=4)
+
+    # wf_clf has columns ['block','date','y_true','y_pred','y_proba']
+    # Make y_pred into a Series indexed by date:
+    signal_series = (
+        wf_clf
+        .set_index('date')['y_pred']  # 0 or 1
+        .sort_index()
+        .rename('signal')
+    )
+
+    # 1) Build OHLC from 'last_price'
+    # rename columns to match backtesting.py
+    df_bt = (
+        raw.rename(columns={
+            "open": "Open",
+            "high": "High",
+            "low": "Low",
+            "last_price": "Close",
+            "volume": "Volume"
+        })
+        # backtesting.py requires a monotonic index
+        .sort_index()
+    )
+
+    # 2) Merge in your model ‘signal’
+    df_bt = df_bt.join(signal_series, how='left')
+
+    # 3) Fill any gaps (no signal → flat)
+    df_bt['signal'].fillna(0, inplace=True)
+
+    print(df_bt)
 
 
 
@@ -418,7 +453,7 @@ def technical_indicators(hist):
     return hist
 
 
-def load_and_clean(ticker, interval="1d", period="3y"):
+def load_and_clean(ticker, interval="1d", period="5y"):
     loader = MarketDataLoader(interval=interval, period=period)
     df = loader.get_history(ticker)
     df.ffill(inplace=True)
@@ -433,7 +468,7 @@ def engineer_features(hist: pd.DataFrame) -> pd.DataFrame:
     """
     # 1) Daily pct return & 20-day vol
     hist["return"] = hist["last_price"].pct_change()
-    hist["vol"]    = hist["return"].rolling(20).std()
+    hist["vol"] = hist["return"].rolling(20).std()
 
     # 2) Momentum features
     for lag in [1, 5, 10]:
@@ -458,24 +493,36 @@ def engineer_and_scale(df: pd.DataFrame):
     """
     1) Add technical indicators
     2) Engineered features (incl. ret_5d & label_5d)
-    3) z-score scale all numeric cols
-    4) Split into X (drop both labels) and y_reg = ret_5d
+    3) z-score scale all continuous numeric cols (exclude targets/labels/binary/discrete)
+    4) Split into X (drop labels/targets) and y_reg = ret_5d (unscaled)
     5) Drop collinear & low-variance
     """
     # Step 1–2: build features
     df = technical_indicators(df)
     df = engineer_features(df)
 
-    # Step 3: select numeric & z-score scale
-    num    = df.select_dtypes(include=[np.number]).copy()
-    scaled = scale_features(num, method="zscore")
+    # Step 3: select numeric cols, exclude label_5d & ret_5d and any binary/discrete columns from scaling
+    # Only scale continuous-valued predictors
+    num = df.select_dtypes(include=[np.number]).copy()
+    # Find columns to exclude from scaling (targets and binary/discrete labels)
+    exclude_cols = ["label_5d", "ret_5d"]
+    # Also exclude any columns that are binary/discrete (nunique <= 2)
+    exclude_cols += [col for col in num.columns if num[col].nunique() <= 2 and col not in exclude_cols]
+    feature_cols = [col for col in num.columns if col not in exclude_cols]
+
+    # Scale only continuous features
+    scaled_features = scale_features(num[feature_cols], method="zscore")
+    # Keep excluded columns as-is, append to scaled features
+    for col in exclude_cols:
+        if col in num.columns:
+            scaled_features[col] = num[col]
 
     # Step 4: separate X/y_reg
-    X     = scaled.drop(columns=["label_5d", "ret_5d"], errors="ignore")
-    y_reg = scaled["ret_5d"]
+    X = scaled_features.drop(columns=["label_5d", "ret_5d"], errors="ignore")
+    y_reg = num["ret_5d"]  # Use unscaled target for regression
 
     # Step 5a: drop collinear (corr > 0.90)
-    corr  = X.corr().abs()
+    corr = X.corr().abs()
     upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
     to_drop = [c for c in upper.columns if any(upper[c] > 0.90)]
     X = X.drop(columns=to_drop)
@@ -489,8 +536,6 @@ def engineer_and_scale(df: pd.DataFrame):
     )
 
     return X_final, y_reg
-
-
 
 
 def apply_pca(X, variance_threshold=0.90):
@@ -755,14 +800,19 @@ def walk_forward_clf(df, feature_cols, target_col,
 
 
 def scale_features(df, method="zscore"):
+    # Defensive: don't scale discrete/binary columns
+    discrete_cols = [col for col in df.columns if df[col].nunique() <= 2]
+    continuous_cols = [col for col in df.columns if col not in discrete_cols]
     if method == "zscore":
         scaler = StandardScaler()
+        scaled_array = scaler.fit_transform(df[continuous_cols])
+        # Construct scaled DataFrame for continuous, then reattach discrete columns
+        scaled_df = pd.DataFrame(scaled_array, index=df.index, columns=continuous_cols)
+        for col in discrete_cols:
+            scaled_df[col] = df[col]
+        return scaled_df
     else:
         raise ValueError("method must be 'minmax' or 'zscore'")
-
-    cols = df.columns
-    scaled_array = scaler.fit_transform(df)
-    return pd.DataFrame(scaled_array, index=df.index, columns=cols)
 
 
 def plot_silhouette_scores(X, ks=range(2, 11)):
@@ -772,7 +822,7 @@ def plot_silhouette_scores(X, ks=range(2, 11)):
     for k in ks:
         labels = KMeans(n_clusters=k, random_state=42).fit_predict(X_scaled)
         sil_scores.append(silhouette_score(X_scaled, labels))
-    plt.figure(figsize=(6,3))
+    plt.figure(figsize=(6, 3))
     plt.plot(list(ks), sil_scores, 'o-', color='tab:blue')
     plt.xlabel('k (number of clusters)')
     plt.ylabel('Average silhouette')
@@ -780,11 +830,12 @@ def plot_silhouette_scores(X, ks=range(2, 11)):
     plt.grid(alpha=0.3)
     plt.show()
 
+
 def plot_dendrogram(X, truncate_level=5):
     """Compute Ward linkage and plot truncated dendrogram."""
     X_scaled = StandardScaler().fit_transform(X)
     Z = linkage(X_scaled, method='ward')
-    plt.figure(figsize=(8,4))
+    plt.figure(figsize=(8, 4))
     dendrogram(Z, truncate_mode='level', p=truncate_level, leaf_rotation=90)
     plt.xlabel('Sample index or (cluster size)')
     plt.ylabel('Ward distance')
@@ -793,117 +844,64 @@ def plot_dendrogram(X, truncate_level=5):
     plt.show()
     return Z
 
-def assign_and_plot_time_clusters(X, labels, title='Cluster Assignments Over Time'):
-    """Color‐map each timestamp by its cluster label."""
-    df = pd.DataFrame({'cluster': labels}, index=X.index)
-    plt.figure(figsize=(12,2))
-    plt.pcolormesh(df.index, [0,1], df['cluster'].values[np.newaxis,:],
-                   cmap='tab20', shading='auto')
-    plt.yticks([])
-    plt.xlabel('Date')
-    plt.title(title)
-    plt.colorbar(label='cluster')
+
+def assign_and_plot_time_clusters(X, labels, title="Cluster Assignments Over Time"):
+    """
+    Simple 1×N heatmap of cluster IDs over time using imshow.
+    X      : DataFrame indexed by datetime (or anything monotonic)
+    labels : array‐like of length==len(X), integer cluster IDs
+    """
+    arr = np.array(labels)[np.newaxis, :]  # shape (1, N)
+    fig, ax = plt.subplots(figsize=(12, 1.5))
+
+    im = ax.imshow(
+        arr,
+        aspect="auto",
+        cmap="tab20",
+        origin="lower",
+    )
+    ax.set_yticks([])  # hide the single row axis
+    # show only a few date‐ticks so it stays readable:
+    N = len(X)
+    step = max(1, N // 10)
+    ax.set_xticks(np.arange(0, N, step))
+    ax.set_xticklabels(
+        [X.index[i].strftime("%Y-%m-%d") for i in range(0, N, step)],
+        rotation=45,
+        ha="right",
+        fontsize=8,
+    )
+    ax.set_title(title)
+    fig.colorbar(im, ax=ax, orientation="vertical", label="Cluster ID")
     plt.tight_layout()
     plt.show()
 
+
 def run_unsupervised_exploration(X, final_k=4):
-    """
-    1) Silhouette plot for k=2…10
-    2) Hierarchical dendrogram (truncated)
-    3) Assign final_k clusters via KMeans & plot regimes over time
-    """
-    # 1. Silhouette
+    # 1) Silhouette
     plot_silhouette_scores(X)
 
-    # 2. Dendrogram + get linkage matrix
+    # 2) Dendrogram + linkage
     Z = plot_dendrogram(X)
 
-    # 3. Final KMeans clustering
+    # 3) K‐Means final
     X_scaled = StandardScaler().fit_transform(X)
     km = KMeans(n_clusters=final_k, random_state=42).fit(X_scaled)
-    labels = km.labels_
+    k_labels = km.labels_
 
-    # 4. Show cluster centroids in original feature space
+    # 4) Print centroids
     centroids = pd.DataFrame(km.cluster_centers_, columns=X.columns)
-    print(f"\nCluster centroids (in scaled‐feature space):\n{centroids}\n")
+    print("\nCluster centroids (scaled space):\n", centroids)
 
-    # 5. Plot cluster assignments over time
-    assign_and_plot_time_clusters(X, labels,
-        title=f'KMeans (k={final_k}) Regimes Over Time'
-    )
+    # 5) Plot K-Means regimes
+    assign_and_plot_time_clusters(X, k_labels, title=f"KMeans (k={final_k}) Over Time")
 
-    # 6. (Optional) Flat clusters from hierarchy
-    h_labels = fcluster(Z, t=final_k, criterion='maxclust')
-    assign_and_plot_time_clusters(X, h_labels,
-        title=f'Hierarchical (k={final_k}) Regimes Over Time'
-    )
-    return labels, h_labels, Z
+    # 6) Optional: hierarchy flat clusters
+    h_labels = fcluster(Z, t=final_k, criterion="maxclust")
+    assign_and_plot_time_clusters(X, h_labels, title=f"Hierarchical (k={final_k}) Over Time")
 
+    return k_labels, h_labels, Z
 
 
 if __name__ == "__main__":
     main()
-
-
-"""Roadmap to Fix and Improve Your Models
-1. First Priorities: Pipeline & Metric Sanity
-Align Block Indexing
-
-Ensure both regression and classification summaries use the same block numbering (start from 0 or 1 consistently).
-
-Verify run_classification_flow and run_regression_flow generate matching block columns so your combined table has no NaNs.
-
-Validate Targets & Baselines
-
-Confirm that y_reg and y_bin align exactly with your feature index after scaling/PCA (no off‐by‐one shifts).
-
-Compute a naive “predict mean” baseline for regression and a dummy classifier (always predict majority class) to benchmark your actual models.
-
-Standardize Scaling Strategy
-
-Replace mixed MinMax and Standard scaling with a single, consistent approach (e.g. StandardScaler for returns, vol, momentum; MinMax for bounded indicators).
-
-Exclude any discrete/binary signals from scaling.
-
-Fix Walk‐Forward Logic
-
-Decide on expanding vs rolling window. Right now you mix expanding for classification and non‐overlapping for regression.
-
-Ensure each test block is out‐of‐sample and no future leakage.
-
-Strengthen Metric Computation
-
-Add ROC AUC and confusion‐matrix breakdown per block.
-
-Handle zero‐division explicitly in precision/recall (you already use zero_division=0—verify it’s applied everywhere).
-
-2. Next Steps: Feature Engineering & Modeling
-Hybrid Indicator Signals
-
-Create discrete buy/hold/sell signals (–1/0/1) for key indicators (RSI, MACD cross) alongside their continuous readings.
-
-Feed discrete signals directly to tree‐based models or as extra columns in PCA.
-
-Expand & Enrich Features
-
-Add volatility‐regime flags (cluster high vs low vol) and longer‐term momentum (20d, 50d).
-
-Incorporate exogenous variables: sector ETF returns, interest‐rate moves, VIX‐style indices.
-
-Model Upgrades & Tuning
-
-Swap LinearRegression for regularized variants (Ridge/Lasso) and grid‐search α.
-
-Try non‐linear learners: RandomForest, XGBoost, LightGBM with hyperparameter tuning (max_depth, n_estimators, learning_rate).
-
-Class Imbalance & Thresholding
-
-Use class weights or SMOTE to balance the “up”/“down” labels.
-
-Optimize decision thresholds via precision–recall or F1 curves instead of default 0.5.
-
-Dimensionality Reduction Alternatives
-
-Compare PCA vs KernelPCA or ICA to capture non‐linear structure.
-
-Evaluate feature selection methods (variance threshold, mutual information, LASSO selection)."""
