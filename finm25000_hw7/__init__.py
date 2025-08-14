@@ -220,45 +220,31 @@ def backtest_trades(
         avg_trade_return, avg_holding_days
     """
     df_bt = df.copy()
-
-    # 1) Build daily position (apply yesterday's signal today)
+    # build today’s position from yesterday’s signal
     df_bt["position"] = df_bt[signal_col].shift(1).fillna(0).astype(int)
 
-    # 2) Compute daily return based on today's open→close move
-    df_bt["daily_return"] = df_bt["position"] * (
-            df_bt[close_col] - df_bt[open_col]
-    ) / df_bt[open_col]
+    # mark every time the position level changes
+    df_bt["chg"] = df_bt["position"] != df_bt["position"].shift(1).fillna(0)
+    events = df_bt[df_bt["chg"]].index
 
-    # 3) Equity curve
-    df_bt["cum_return"] = (1 + df_bt["daily_return"]).cumprod()
-
-    # 4) Identify trade boundaries
-    pos = df_bt["position"]
-
-    # Trade entry when position goes from 0→±1
-    entries = df_bt.index[(pos != 0) & (pos.shift(1, fill_value=0) == 0)]
-    # Trade exit when position goes from ±1→0
-    exits = df_bt.index[(pos == 0) & (pos.shift(1) != 0)]
-
-    # If still in‐trade at end, force‐exit on last date
-    if len(exits) < len(entries):
-        exits = exits.append(pd.Index([df_bt.index[-1]]))
-
-    # 5) Compile per‐trade stats
     trades = []
-    for entry_date, exit_date in zip(entries, exits):
-        direction = int(df_bt.at[entry_date, "position"])
+    for i in range(len(events) - 1):
+        entry_date = events[i]
+        exit_date = events[i + 1]
+        entry_pos = df_bt.at[entry_date, "position"]
+        if entry_pos == 0:
+            continue  # skip flat→flat
         entry_price = df_bt.at[entry_date, open_col]
         exit_price = df_bt.at[exit_date, open_col]
-        ret = (exit_price - entry_price) / entry_price * direction
-        holding = (exit_date - entry_date).days
+        ret = (exit_price / entry_price - 1) * entry_pos
+        days_held = (exit_date - entry_date).days
 
         trades.append({
             "entry": entry_date,
             "exit": exit_date,
-            "direction": direction,
+            "direction": entry_pos,
             "return": ret,
-            "holding_days": holding
+            "holding_days": days_held
         })
 
     trades_df = pd.DataFrame(trades)
@@ -299,6 +285,13 @@ def main():
     df_feats["signal"] = 0
     df_feats.loc[short_ma > long_ma, "signal"] = 1
     df_feats.loc[short_ma < long_ma, "signal"] = -1
+
+    df_feats["ma_short"] = df_feats["close"].rolling(10).mean()
+    df_feats["ma_long"] = df_feats["close"].rolling(20).mean()
+
+    df_feats["signal"] = 0
+    df_feats.loc[df_feats["ma_short"] > df_feats["ma_long"], "signal"] = 1
+    df_feats.loc[df_feats["ma_short"] < df_feats["ma_long"], "signal"] = -1
 
     print(df_feats['signal'].value_counts())
     print(df_feats[['close']].assign(
