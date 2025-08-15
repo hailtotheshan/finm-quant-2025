@@ -1,0 +1,259 @@
+from alpaca.trading.client import TradingClient
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import StockBarsRequest
+from alpaca.data.timeframe import TimeFrame
+from alpaca.trading.requests import MarketOrderRequest
+from alpaca.trading.enums import OrderSide, TimeInForce
+from datetime import datetime, timedelta, timezone
+import pandas as pd
+import numpy as np
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
+import matplotlib.pyplot as plt
+
+def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute moving averages, RSI, Bollinger width, ROC, OBV.
+    """
+    f = df.copy()
+    windows = [5, 10, 20, 50]
+    for w in windows:
+        f[f"ma_{w}"] = f.close.rolling(w).mean()
+
+    delta = f.close.diff()
+    up, down = delta.clip(lower=0), -delta.clip(upper=0)
+    rs = up.rolling(14).mean() / down.rolling(14).mean()
+    f["rsi_14"] = 100 - (100 / (1 + rs))
+
+    mb = f.close.rolling(20).mean()
+    std = f.close.rolling(20).std()
+    f["bb_width"] = (mb + 2 * std - (mb - 2 * std)) / mb
+
+    f["roc_10"] = f.close.pct_change(10)
+    f["obv"] = (np.sign(f.close.diff()) * f.volume).fillna(0).cumsum()
+
+    core = [f"ma_{w}" for w in windows] + ["rsi_14", "bb_width", "roc_10", "obv"]
+    return f.dropna(subset=core)
+
+
+def make_labels(df: pd.DataFrame) -> pd.Series:
+    """
+    Binary label: 1 if next-day close > today-close, else 0.
+    """
+    return (df.close.shift(-1) > df.close).astype(int).iloc[:-1]
+
+
+def train_model(
+        X: pd.DataFrame,
+        y: pd.Series
+) -> tuple[LogisticRegression, StandardScaler]:
+    """
+    Standardize and fit a logistic regression.
+    """
+    scaler = StandardScaler()
+    Xs = scaler.fit_transform(X)
+    model = LogisticRegression(C=1.0, solver="lbfgs", max_iter=200)
+    model.fit(Xs, y)
+    return model, scaler
+
+
+def generate_signals(
+        df: pd.DataFrame,
+        model: LogisticRegression,
+        scaler: StandardScaler,
+        threshold: float = 0.5
+) -> pd.DataFrame:
+    """
+    Add a 'signal' column: +1 (go long) if P(up) ≥ threshold, else -1.
+    """
+    drop_cols = ["open", "high", "low", "close", "volume", "trade_count", "vwap"]
+    X = df.drop(columns=drop_cols).iloc[:-1]
+    proba = model.predict_proba(scaler.transform(X))[:, 1]
+    out = df.iloc[:-1].copy()
+    out["signal"] = np.where(proba >= threshold, 1, -1)
+    return out
+
+
+def backtest_trades(
+        df: pd.DataFrame,
+        signal_col: str = "signal",
+        open_col: str = "open"
+) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    """
+    Turn daily signals into filled trades, compute PnL & metrics.
+    """
+    df_bt = df.copy()
+    df_bt["position"] = df_bt[signal_col].shift(1).fillna(0).astype(int)
+    df_bt["chg"] = df_bt.position != df_bt.position.shift(1).fillna(0)
+    events = df_bt[df_bt.chg].index
+
+    trades = []
+    for start, end in zip(events[:-1], events[1:]):
+        pos = df_bt.at[start, "position"]
+        if pos == 0:
+            continue
+        entry_price = df_bt.at[start, open_col]
+        exit_price  = df_bt.at[end,   open_col]
+        ret  = (exit_price / entry_price - 1) * pos
+        days = (end - start).days
+        trades.append({
+            "entry":        start,
+            "exit":         end,
+            "direction":    pos,
+            "return":       ret,
+            "holding_days": days
+        })
+
+    trades_df = pd.DataFrame(trades).set_index("entry")
+    df_bt["daily_pnl"]   = df_bt.position * (df_bt.close.shift(-1) - df_bt.open) / df_bt.open
+    df_bt["cum_return"]  = (1 + df_bt.daily_pnl.fillna(0)).cumprod()
+
+    if trades_df.empty:
+        metrics = {
+            "Total Return":      0.0,
+            "Number of Trades":  0,
+            "Win Rate":          0.0,
+            "Avg Trade Return":  0.0,
+            "Avg Holding Days":  0.0,
+        }
+    else:
+        total_ret = df_bt["cum_return"].iloc[-1] - 1
+        metrics = {
+            "Total Return":      total_ret,
+            "Number of Trades":  len(trades_df),
+            "Win Rate":          (trades_df["return"] > 0).mean(),
+            "Avg Trade Return":  trades_df["return"].mean(),
+            "Avg Holding Days":  trades_df["holding_days"].mean(),
+        }
+
+    plt.figure(figsize=(12, 6))
+    plt.plot(df_bt.index, df_bt["cum_return"], label="Strategy CumReturn", lw=2)
+    buy_hold = df_bt["close"] / df_bt["close"].iloc[0]
+    plt.plot(df_bt.index, buy_hold, label="Buy & Hold", lw=1, ls="--", color="gray")
+    plt.title("Strategy vs Buy & Hold Performance")
+    plt.xlabel("Date")
+    plt.ylabel("Cumulative Return")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+    return df_bt, trades_df, metrics
+
+
+def trade_based_on_model(
+    trading_client: TradingClient,
+    price_df: pd.DataFrame,
+    model: LogisticRegression,
+    scaler: StandardScaler,
+    symbol: str = "AAPL",
+    qty: int = 1,
+    threshold: float = 0.5
+):
+    """
+    Engineer today's features, predict P(up), then submit a market order.
+    Also print account info & order details.
+    """
+    # 1) Print paper‐account snapshot
+    acct = trading_client.get_account()
+    print("\n=== PAPER ACCOUNT INFO ===")
+    print(f"Cash:          ${acct.cash}")
+    print(f"Equity:        ${acct.equity}")
+    print(f"Buying Power:  ${acct.buying_power}")
+
+    # 2) Does AAPL exist in positions?
+    positions = trading_client.get_all_positions()
+    aapl_pos = next((p for p in positions if p.symbol=="AAPL"), None)
+    if aapl_pos:
+        print(f"AAPL Position: {aapl_pos.qty} shares @ avg ${aapl_pos.avg_entry_price}")
+    else:
+        print("AAPL Position: none")
+
+    # 3) Recompute features & predict
+    feat_df = engineer_features(price_df)
+    drop_cols = ["open","high","low","close","volume","trade_count","vwap"]
+    X_live = feat_df.drop(columns=drop_cols)
+    today_X = X_live.iloc[[-1]]
+    p_up = model.predict_proba(scaler.transform(today_X))[:,1][0]
+    side = OrderSide.BUY if p_up>=threshold else OrderSide.SELL
+    print(f"\n[{symbol}] P(up) = {p_up:.2f}, signal = {side.name}")
+
+    # 4) Submit order & print full order record
+    order_req = MarketOrderRequest(
+        symbol=symbol, qty=qty, side=side, time_in_force=TimeInForce.GTC
+    )
+    resp = trading_client.submit_order(order_req)
+    print("\n=== ORDER RESPONSE ===")
+    print(f"ID:        {resp.id}")
+    print(f"Symbol:    {resp.symbol}")
+    print(f"Side:      {resp.side}")
+    print(f"Qty:       {resp.qty}")
+    print(f"Status:    {resp.status}")
+    print(f"Filled:    {resp.filled_qty}")
+    print(f"Filled Avg:${resp.filled_avg_price}\n")
+
+    return resp
+
+
+def main():
+    API_KEY    = "PK5LEBKYC5L2NFXXM064"
+    SECRET_KEY = "tNrcIbIhLbMDncC9GIh8jfuvncWRpNDpnWVQZtFJ"
+
+    trading_client = TradingClient(API_KEY, SECRET_KEY, paper=True)
+    data_client    = StockHistoricalDataClient(API_KEY, SECRET_KEY)
+
+    # 1) fetch daily bars for AAPL
+    request_params = StockBarsRequest(
+        symbol_or_symbols=["AAPL"],
+        timeframe=TimeFrame.Day,
+        start="2021-01-01",
+        end="2025-01-01"
+    )
+    bars_response = data_client.get_stock_bars(request_params)
+    raw_df        = bars_response.df
+    price_df      = raw_df.xs("AAPL", level="symbol").copy()
+
+    # Print data fetch summary
+    print("Fetched Bars:", price_df.shape[0],
+          "rows from", price_df.index.min().date(),
+          "to", price_df.index.max().date())
+
+    # 2) feature-engineer
+    feat_df = engineer_features(price_df)
+    print("\nSample engineered features:")
+    print(feat_df.iloc[-3:][[
+        "ma_5","ma_10","rsi_14","bb_width","roc_10","obv"]])
+
+    # 3) labels
+    y = make_labels(feat_df)
+    print(f"\nLabels distribution: {y.value_counts().to_dict()}  (0=down, 1=up)")
+
+    # 4) inputs
+    drop_cols = ["open","high","low","close","volume","trade_count","vwap"]
+    X = feat_df.drop(columns=drop_cols).iloc[:-1]
+
+    # 5) train
+    model, scaler = train_model(X, y)
+    print("\nModel intercept & coeffs:")
+    print(f"Intercept: {model.intercept_[0]:.4f}")
+    print("Coefs:", np.round(model.coef_[0], 4))
+
+    # 6) signals & backtest
+    signals_df = generate_signals(feat_df, model, scaler, threshold=0.5)
+    bt_df, trades_df, summary = backtest_trades(signals_df)
+    print("Backtest summary:", summary)
+
+    # 7) Trade today's signal
+    trade_based_on_model(
+        trading_client=trading_client,
+        price_df=price_df,
+        model=model,
+        scaler=scaler,
+        symbol="AAPL",
+        qty=1,
+        threshold=0.5
+    )
+
+
+if __name__ == "__main__":
+    main()
