@@ -1,0 +1,59 @@
+from alpaca.trading.client import TradingClient
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import StockBarsRequest
+from alpaca.data.timeframe import TimeFrame
+from alpaca.trading.requests import MarketOrderRequest
+from alpaca.trading.enums import OrderSide, TimeInForce
+from alpaca.data.requests import StockQuotesRequest
+
+
+# Replace with your actual API Key and Secret
+API_KEY = "PK9XC61APT0SHVFKTA1A"
+SECRET_KEY = "hdE5kBJQ1ecwGy0Xa0qVfCcN8sEtXbjtQbXOp3LV"
+
+# Initialize the trading client (for placing orders, managing account)
+trading_client = TradingClient(API_KEY, SECRET_KEY, paper=True)  # Set paper=False for live trading
+
+# Initialize the historical data client
+data_client = StockHistoricalDataClient(API_KEY, SECRET_KEY)
+
+# Example: Get historical 1-minute bars for AAPL
+request_params = StockBarsRequest(
+    symbol_or_symbols=["AAPL"],
+    timeframe=TimeFrame.Day,
+    start="2021-01-01",
+    end="2025-01-01"
+)
+
+# Fetch bars (this call will automatically page through all results)
+bars_response = data_client.get_stock_bars(request_params)
+
+# Convert to a single DataFrame
+# The returned df has a MultiIndex: (symbol, timestamp)
+raw_df = bars_response.df
+
+# If you only fetched one symbol, you can drop the symbol level:
+# This yields a DatetimeIndex and columns: open, high, low, close, volume, etc.
+df = raw_df.xs("AAPL", level="symbol").copy()
+
+# Inspect the head
+print(df.head())
+
+
+'''# get historical quotes by symbol
+req = StockQuotesRequest(
+    symbol_or_symbols = ["AAPL"],
+    start = '2025-08-01',                      # specify start datetime, default=the beginning of the current day.
+    # end=None,                                             # specify end datetime, default=now
+)
+print(data_client.get_stock_quotes(req).df)'''
+
+# Example: Place a market buy order for 1 share of AAPL
+market_order_data = MarketOrderRequest(
+    symbol="AAPL",
+    qty=1,
+    side=OrderSide.BUY,
+    time_in_force=TimeInForce.GTC
+)
+submit_order_response = trading_client.submit_order(market_order_data)
+print(submit_order_response)
